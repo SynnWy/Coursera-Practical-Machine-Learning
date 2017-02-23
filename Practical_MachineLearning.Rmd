@@ -1,0 +1,117 @@
+---
+title: "Coursera Practical Machine Learning - Predicting Exercising Manner"
+author: "SynnWy"
+date: "February 22, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Overview
+This project is about predicting users' exercising manner, in order to review the statistics of how well a person is performing in the activity. In order to explore such studies, we used data sets provided by http://groupware.les.inf.puc-rio.br/har (weight lifting exercise dataset) which consists of data collected from 6 participants' accelerometer readings. Readings are taken down as they performed barbell lifts in 5 different ways, both correct and incorrect methods.
+
+###Data
+As mentioned above, the 5 ways are:
+
+1. Class A: according to instructions.        [Correct] 
+2. Class B: throwing the elbows to the front. [Incorrect] 
+3. Class C: lifting the dumbell only halfway. [Incorrect] 
+4. Class D: lowering the dumbell only halfway.[Incorrect]   
+5. Class E: throwing the hips to the front.   [Incorrect] 
+
+##Data Processing
+####Load data & R packages needed
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), warning=FALSE, message=FALSE}
+#load packages
+library(caret)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(repmis)
+
+url.training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url.testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+#load data
+setwd("D:\\WY\\DataScience\\Practical_MachineLearning\\Coursera-Practical-Machine-Learning")
+
+if(!file.exists("training.csv")){
+  download.file(url.training, destfile = "training.csv")
+}
+
+if(!file.exists("testing.csv")){
+  download.file(url.testing, destfile = "testing.csv")
+}
+
+training <- read.csv("training.csv", na.strings = c("NA",""), stringsAsFactors = FALSE)
+testing <- read.csv("testing.csv", na.strings = c("NA",""), stringsAsFactors = FALSE)
+
+#partition training data 
+ptraining <- createDataPartition(y = training$classe, p = 0.7, list = F)
+ptraining1 <- training[ptraining,]
+ptrainingv <- training[-ptraining,]
+
+dim(ptraining1)
+dim(ptrainingv)
+```
+We can see there's a total of 160 variables with 19622 observations in training dataset (11776 from ptraining1 and 7846 from ptrainingv).
+
+##Data Cleaning
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), warning=FALSE, message=FALSE}
+#remove variables that are near to zero variance
+nearZero <- nearZeroVar(ptraining1)
+ptraining1 <- ptraining1[, -nearZero]
+ptrainingv <- ptrainingv[, -nearZero]
+
+#remove NA
+ptrainNA <- sapply(ptraining1, function(x) mean(is.na(x))) > 0.95
+ptraining1 <- ptraining1[, ptrainNA==F]
+ptrainingv <- ptrainingv[, ptrainNA==F]
+
+#remove unwanted columns (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp)
+ptraining1 <- ptraining1[, -(1:5)]
+```
+
+##Prediction Algorithms
+####Classification Trees
+In order to save time, we used 5-fold cross validation in this algorithm implementation. 
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), warning=FALSE, message=FALSE}
+cvControl <- trainControl(method = "cv", number = 5)
+rpartpt <- train(classe ~ ., data = ptraining1, method = "rpart", trControl = cvControl)
+print(rpartpt, digits = 4)
+
+fancyRpartPlot(rpartpt$finalModel)
+
+#prediction with ptrainingv (validation)
+predictptv <- predict(rpartpt, ptrainingv)
+(cmptv <- confusionMatrix(ptrainingv$classe, predictptv))
+(rpartacc <- cmptv$overall[1])
+```
+
+As seen above, the accuracy rate is 0.5 and thus the out-of-sample error rate is 0.5 too. However, this algorithm did not predict the outcome classe very well.
+
+####Random Forest
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), warning=FALSE, message=FALSE}
+rftraining <- train(classe ~ ., data = ptraining1, method = "rf", trControl = cvControl)
+print(rftraining, digits = 4)
+
+#prediction with ptrainingv (validation)
+predictrft <- predict(rftraining, ptrainingv)
+(cmrft <- confusionMatrix(ptrainingv$classe, predictrft))
+(rfacc <- cmrft$overall[1])
+
+plot(cmrft$table, col = cmptv$byClass, main = paste("Random Forest Confusion Matrix - Accuracy: ", round(cmrft$overall['Accuracy'], 4)))
+```
+
+With this algorithm, the output is much better as you can see above, the accuracy rate is 0.998 whereas the out-of-sample error rate is 0.002. One of the reason could be the high correlation among predictors and random forests chooses a subset of predictors at each split and then decorrelate the trees. By doing this, we could obtain high accuract results however, nothing is perfect, this algorithm can be difficult to interpret and computationally inefficient at times.
+
+##Predicting Results on Test Data
+Random Forest gave us the higher accuracy compared to classification trees, which is 99.8%. The out-of-sample error rate is 100 - 99.8 = 0.2%.
+
+```{r, tidy=TRUE, tidy.opts=list(width.cutoff=60), warning=FALSE, message=FALSE}
+(predict(rftraining, testing))
+```
